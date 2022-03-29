@@ -156,9 +156,9 @@ def Evaluate(features, adj, after_attack):
         history_after_attack.append(0)
         
     ## other_nodes
-    test_f1, test_AUC, test_con, test_gmean = accuracy(output[idx_test], 
-                                                        labels[idx_test], 
-                                                        output_AUC[idx_test])
+    test_f1, test_AUC, test_con, test_gmean = accuracy(output[idx_train], 
+                                                        labels[idx_train], 
+                                                        output_AUC[idx_train])
     print("Test f1: ", test_f1)
     print("Test AUC: ", test_AUC)
     print("Test confusion ", test_con)
@@ -166,6 +166,7 @@ def Evaluate(features, adj, after_attack):
 
 
 adj_after_attack = adj_real # 已經加入fake node 但還沒加入fake edge
+adj_after_attack_norm = adj_norm
 history_graph = []
 
 ## record history of attack
@@ -175,39 +176,40 @@ history_attack_rate = []
 
 
 for epoch_G in range(args.epochs_G):
-    ### Train Generator
-    model_G.train()
-    optimizer_G.zero_grad()
-    z = Variable(torch.FloatTensor(np.random.normal(size=(n_fakes, 100)))).to(device)
+    for _ in range(2):
+        ### Train Generator
+        model_G.train()
+        optimizer_G.zero_grad()
+        z = Variable(torch.FloatTensor(np.random.normal(size=(n_fakes, 100)))).to(device)
 
-    adj_min = model_G(z)
-    fake_features_train, adj_temp_train = \
-        model_G.generate_fake_features(adj_min, 
-                                       features, 
-                                       minority, 
-                                       fake_nodes)
-    fake_features_test, adj_temp_test = \
-        model_G.generate_fake_features(adj_min, 
-                                       features, 
-                                       minority_all, 
-                                       fake_nodes)
+        adj_min = model_G(z)
+        fake_features_train, adj_temp_train = \
+            model_G.generate_fake_features(adj_min, 
+                                        features, 
+                                        minority, 
+                                        fake_nodes)
+        fake_features_test, adj_temp_test = \
+            model_G.generate_fake_features(adj_min, 
+                                        features, 
+                                        minority_all, 
+                                        fake_nodes)
 
-    adj_unnorm_train, adj_new_train = add_edges(adj_after_attack, adj_temp_train)
-    adj_unnorm_test, adj_new_test = add_edges(adj_after_attack, adj_temp_test)
+        adj_unnorm_train, adj_new_train = add_edges(adj_after_attack, adj_temp_train)
+        adj_unnorm_test, adj_new_test = add_edges(adj_after_attack, adj_temp_test)
 
-    adj_new_train = adj_new_train.to(device)
-    adj_new_test = adj_new_test.to(device)
+        adj_new_train = adj_new_train.to(device)
+        adj_new_test = adj_new_test.to(device)
 
-    features_new_train = torch.cat([features, fake_features_train.data])
-    features_new_test = torch.cat([features, fake_features_test.data])
+        features_new_train = torch.cat([features, fake_features_train.data])
+        features_new_test = torch.cat([features, fake_features_test.data])
 
-    output, output_gen, output_AUC = model_D(features_new_train, adj_norm)
-    
-    loss_g = F.nll_loss(output_gen[fake_nodes], labels_true_G) \
-             + F.nll_loss(output[fake_nodes], labels_min_G) \
-             + euclidean_dist(features[minority], fake_features_train).mean()
-    loss_g.backward()
-    optimizer_G.step()
+        output, output_gen, output_AUC = model_D(features_new_train, adj_after_attack_norm)
+        
+        loss_g = F.nll_loss(output_gen[fake_nodes], labels_true_G) \
+                + F.nll_loss(output[fake_nodes], labels_min_G) \
+                + euclidean_dist(features[minority], fake_features_train).mean()
+        loss_g.backward()
+        optimizer_G.step()
 
     ### Train Discrminator
     for epoch_D in trange(args.epochs_D):
@@ -274,6 +276,8 @@ for epoch_G in range(args.epochs_G):
     adj_after_attack = sp.coo_matrix((np.ones(mask.sum()), (edge_index[0], edge_index[1])),
                                      shape=(attacker.nnodes, attacker.nnodes),
                                      dtype=np.float32)
+
+    adj_after_attack_norm = attacker.modified_adj_norm
 
 
 
