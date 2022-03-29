@@ -1,4 +1,5 @@
 import argparse
+from tkinter import Y
 import numpy as np
 import scipy.sparse as sp
 import torch
@@ -17,9 +18,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--fastmode', action='store_true', default=False,
                     help='Validate during training pass.')
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
-parser.add_argument('--epochs_G', type=int, default=10,
+parser.add_argument('--epochs_G', type=int, default=100,
                     help='Number of epochs to train for gen.')
-parser.add_argument('--epochs_D', type=int, default=5,
+parser.add_argument('--epochs_D', type=int, default=50,
                     help='Number of epochs to train.')
 parser.add_argument('--hidden', type=int, default=128,
                     help='Number of hidden units.')
@@ -134,16 +135,46 @@ minority (train)
 
 '''
 
-def Evaluate(features, adj):
+def log_attack(log_list, log_value, after_attack:bool):
+    log_list.append(log_value)
+
+
+def Evaluate(features, adj, after_attack):
     model_D.eval()
     output, output_gen, output_AUC = model_D(features, adj)
+
+    ## attacker
     n_attack_success = n_attackers - torch.argmax(output[attackers], -1).sum().item()
     print(f'num of suceessful attack: {n_attack_success}')
     print(f'num of attackers: {n_attackers}')
     print(f'attack_rate: {n_attack_success/n_attackers:.2f}')
 
+    history_n_attack_success.append(n_attack_success)
+    history_attack_rate.append(n_attack_success/n_attackers)
+    if after_attack:
+        history_after_attack.append(1)
+    else:
+        history_after_attack.append(0)
+        
+    ## other_nodes
+    test_f1, test_AUC, test_con, test_gmean = accuracy(output[idx_test], 
+                                                        labels[idx_test], 
+                                                        output_AUC[idx_test])
+    print("Test f1: ", test_f1)
+    print("Test AUC: ", test_AUC)
+    print("Test confusion ", test_con)
+
+
+
 adj_after_attack = adj_real # 已經加入fake node 但還沒加入fake edge
 history_graph = []
+
+## record history of attack
+history_after_attack = []
+history_n_attack_success = []
+history_attack_rate = []
+
+
 for epoch_G in range(args.epochs_G):
     ### Train Generator
     model_G.train()
@@ -225,18 +256,17 @@ for epoch_G in range(args.epochs_G):
     #     "val_f1=", "{:.5f}".format(f1_val), "val_AUC=", "{:.5f}".format(AUC_val),"val_gmean=", "{:.5f}".format(gmean_val))
     
     history_graph.append(adj_new_train) # added fake nodes and fake edges and do normalization
-    print('=======================Round 1 Evaluate=======================')
-    for i, adj_i in enumerate(history_graph):
-        print(f'hist_graph {i}')
-        Evaluate(features_new_train, adj_i)
+    print(f'epoch:{epoch_G+1}  =======================Round 1 Evaluate=======================')
+    Evaluate(features_new_train, history_graph[-1], after_attack=False)
+
 
     adj_unnorm_train, adj_new_train = add_edges(adj_real, adj_temp_train)
     loss_log = attacker.attack(features_new_train,
                                 adj_unnorm_train.to_dense(), 
                                 labels, attackers, n_perturbations)
 
-    print('=======================Round 2 Evaluate=======================')
-    Evaluate(features_new_train, attacker.modified_adj_norm)
+    print(f'epoch:{epoch_G+1}  =======================Round 2 Evaluate=======================')
+    Evaluate(features_new_train, attacker.modified_adj_norm, after_attack=True)
     edge_index = attacker.modified_adj.nonzero().cpu().T 
     mask = edge_index < n_real
     mask = torch.logical_and(mask[0], mask[1])
@@ -245,7 +275,6 @@ for epoch_G in range(args.epochs_G):
     adj_after_attack = sp.coo_matrix((np.ones(mask.sum()), (edge_index[0], edge_index[1])),
                                      shape=(attacker.nnodes, attacker.nnodes),
                                      dtype=np.float32)
-
 
 
 
