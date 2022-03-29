@@ -77,7 +77,6 @@ adj_real, adj_norm = load_adj(args.dataset, n_nodes=n_real+n_fakes)
 fake_nodes, fake_labels = generate_fake_nodes(n_real, n_fakes)
 
 # Split train val data
-idx_train, idx_val = train_test_split(idx_train, test_size=0.1)
 idx_train = torch.cat([idx_train, fake_nodes])
 labels = torch.cat([labels, fake_labels])
 
@@ -86,7 +85,7 @@ labels_true_G = torch.LongTensor(n_fakes).fill_(0) # Model_G產生的Fake Nodes�
 labels_min_G = torch.LongTensor(n_fakes).fill_(1) # Model_G產生的Fake Nodes要像minority
 
 # labels for Discrminator
-labels_true_D = torch.cat([torch.LongTensor(n_real-len(idx_test)-len(idx_val)).fill_(0), 
+labels_true_D = torch.cat([torch.LongTensor(n_real-len(idx_test)).fill_(0), 
                            torch.LongTensor(n_fakes).fill_(1)])
 
 
